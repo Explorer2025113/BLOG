@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unity 中的交互式实时光学光线追踪与景深模拟 — DH2323 项目博客</title>
+<meta name="description" content="从跟着 YouTube 教程学光追，到把它做成 Unity 里能实时调焦的工具。KTH DH2323 课程项目，作者：王尚文、袁伟程。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,900;1,9..144,400;1,9..144,600&family=IBM+Plex+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Noto+Serif+SC:wght@400;600;900&family=Noto+Sans+SC:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #fafafa;
+    --bg-elev:  #ffffff;
+    --bg-code:  #f5f6f8;
+    --border:   #e8eaed;
+    --border-strong: #d1d5db;
+    --text:     #1a1d21;
+    --text-dim: #4a5260;
+    --text-soft:#7a8493;
+    --accent:   #0284c7;
+    --accent-strong: #0369a1;
+    --accent-glow: rgba(0, 0, 0, 0.05);
+    --amber:    #b45309;
+    --green:    #15803d;
+    --red:      #b91c1c;
+
+    --font-display: 'Fraunces', 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
+    --font-body:    'IBM Plex Sans', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-mono:    'JetBrains Mono', 'SF Mono', Menlo, monospace;
+
+    --max-w: 760px;
+    --max-w-wide: 1040px;
+  }
+
+  *,*::before,*::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 90px; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-weight: 400;
+    font-size: 17px;
+    line-height: 1.75;
+    letter-spacing: 0;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: none;
+  }
+
+  ::selection { background: var(--text); color: var(--bg); }
+
+  a { color: var(--accent); text-decoration: none; transition: color .15s ease; }
+  a:hover { color: var(--text-dim); }
+
+  /* Top bar */
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 28px;
+    background: rgba(250, 250, 250, 0.85);
+    backdrop-filter: blur(14px) saturate(120%);
+    -webkit-backdrop-filter: blur(14px) saturate(120%);
+    border-bottom: 1px solid transparent;
+    transition: border-color .2s ease;
+  }
+  .topbar.scrolled { border-bottom-color: var(--border); }
+  .topbar-title {
+    font-family: var(--font-mono);
+    font-size: 12px; font-weight: 500;
+    color: var(--text-dim); letter-spacing: 0.04em;
+  }
+  .topbar-title strong { font-weight: inherit; color: inherit; }
+  .topbar-title .zh { font-family: var(--font-body); margin-left: 2px; }
+  .topbar-title .dot {
+    display: inline-block;
+    width: 6px; height: 6px;
+    background: var(--text);
+    border-radius: 50%;
+    margin: 0 10px;
+    vertical-align: middle;
+  }
+  .topbar-links {
+    display: flex; gap: 20px;
+    font-family: var(--font-mono); font-size: 12px;
+    letter-spacing: 0.03em;
+  }
+  .topbar-links a { color: var(--text-dim); text-transform: lowercase; }
+  .topbar-links a:hover { color: var(--text); }
+  .topbar-links .zh { font-family: var(--font-body); text-transform: none; }
+
+  /* Layout */
+  .shell {
+    position: relative; z-index: 2;
+    max-width: var(--max-w-wide);
+    margin: 0 auto; padding: 0 40px;
+  }
+  section {
+    padding: 0;
+  }
+  .content {
+    max-width: var(--max-w);
+    margin: 0 auto;
+  }
+
+  /* Hero */
+  .hero {
+    padding: 100px 0 36px;
+    position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content: "";
+    position: absolute; top: 10%; right: -150px;
+    width: 640px; height: 640px;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle, transparent 58%, rgba(0, 0, 0, 0.06) 58%, transparent 60%),
+      radial-gradient(circle, transparent 40%, rgba(0, 0, 0, 0.04) 40%, transparent 42%),
+      radial-gradient(circle, transparent 22%, rgba(0, 0, 0, 0.03) 22%, transparent 24%);
+    pointer-events: none; filter: blur(0.4px);
+  }
+
+  .hero-meta {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 40px;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  }
+  .hero-meta .zh { font-family: var(--font-body); letter-spacing: 0.02em; }
+  .hero-meta .sep { width: 22px; height: 1px; background: var(--border-strong); }
+  .hero-meta .badge {
+    padding: 3px 9px; border: 1px solid var(--text);
+    border-radius: 3px; color: var(--text); font-size: 10px;
+  }
+
+  h1.hero-title {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: clamp(40px, 6.4vw, 78px);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    margin: 0 0 38px;
+    font-variation-settings: "opsz" 144, "SOFT" 50;
+  }
+  h1.hero-title em {
+    font-style: italic; color: var(--text);
+    font-variation-settings: "opsz" 144, "SOFT" 100;
+    background: none; padding: 0;
+  }
+
+  .hero-sub {
+    font-size: 20px; line-height: 1.65;
+    color: var(--text-dim);
+    max-width: 680px; font-weight: 300;
+    margin-bottom: 48px;
+  }
+
+  .hero-authors {
+    font-family: var(--font-mono);
+    font-size: 13px; color: var(--text-soft);
+    margin-bottom: 40px; line-height: 1.8;
+  }
+  .hero-authors strong { color: var(--text); font-weight: 500; font-family: var(--font-body); }
+  .hero-authors .zh { font-family: var(--font-body); }
+
+  /* Side nav */
+  .side-nav {
+    position: fixed; top: 50%; left: 28px;
+    transform: translateY(-50%); z-index: 50;
+    display: flex; flex-direction: column; gap: 14px;
+    font-family: var(--font-body); font-size: 11px;
+  }
+  .side-nav a {
+    display: flex; align-items: center; gap: 12px;
+    color: var(--text-soft); letter-spacing: 0.03em;
+    transition: color .15s ease;
+  }
+  .side-nav a::before {
+    content: ""; width: 18px; height: 1px;
+    background: var(--text-soft);
+    transition: all .2s ease;
+  }
+  .side-nav a:hover { color: var(--text); }
+  .side-nav a.active { color: var(--text); }
+  .side-nav a.active::before {
+    background: var(--text); width: 32px;
+    box-shadow: 0 0 8px var(--text);
+  }
+  .side-nav .label { white-space: nowrap; }
+  @media (max-width: 1280px) { .side-nav { display: none; } }
+
+  /* Section typography */
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: clamp(30px, 3.8vw, 44px);
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+    margin: 40px 0 20px;
+    font-variation-settings: "opsz" 72;
+  }
+  h2 em { font-style: italic; color: var(--text); background: none; padding: 0; }
+
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 600; font-size: 22px;
+    margin: 48px 0 16px;
+    line-height: 1.35;
+  }
+
+  /* h4 used for camera-mode names */
+  h4.mode {
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 17px;
+    color: var(--text);
+    margin: 30px 0 8px;
+    letter-spacing: 0;
+    line-height: 1.4;
+  }
+  h4.mode::first-letter {
+    color: var(--text);
+  }
+
+  p { margin: 0 0 18px; }
+  .content p:last-child { margin-bottom: 0; }
+
+  strong { font-weight: inherit; color: inherit; }
+  em {
+    color: var(--text); font-style: normal;
+    background: linear-gradient(transparent 60%, rgba(0, 0, 0, 0.08) 60%);
+    padding: 0 2px;
+  }
+  em.italic { font-style: italic; background: none; padding: 0; color: var(--text); }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    background: var(--bg-code);
+    color: var(--text);
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+  }
+
+  /* CoC equation block */
+  .eq {
+    margin: 24px 0;
+    padding: 20px 24px;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.025), rgba(0, 0, 0, 0.01));
+    border-left: 2px solid var(--text);
+    border-radius: 0 4px 4px 0;
+    font-family: var(--font-mono);
+    font-size: 15px; color: var(--text);
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 20px; flex-wrap: wrap;
+  }
+  .eq .expr { font-style: italic; flex: 1; min-width: 0; }
+  .eq .num { color: var(--text-soft); font-size: 13px; white-space: nowrap; }
+
+  /* Callout */
+  .callout {
+    margin: 28px 0;
+    padding: 18px 22px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--text);
+    border-radius: 0 4px 4px 0;
+    font-size: 15px; color: var(--text-dim);
+    line-height: 1.75;
+  }
+  .callout .callout-label {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 11px; color: var(--text-dim);
+    letter-spacing: 0.12em; text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .callout p:last-child { margin-bottom: 0; }
+
+  /* Placeholder figures */
+  figure.placeholder { margin: 36px 0 28px; }
+  figure.placeholder .ph-box {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border: 1px dashed var(--border-strong);
+    border-radius: 4px;
+    background:
+      linear-gradient(135deg, transparent 49.6%, var(--border-strong) 49.8%, var(--border-strong) 50.2%, transparent 50.4%),
+      linear-gradient(45deg, transparent 49.6%, var(--border-strong) 49.8%, var(--border-strong) 50.2%, transparent 50.4%),
+      radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0.02), transparent 60%),
+      var(--bg-elev);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+    transition: border-color .2s ease;
+  }
+  figure.placeholder .ph-box:hover { border-color: var(--text); }
+  figure.placeholder.tall .ph-box { aspect-ratio: 4 / 3; }
+
+  figure.placeholder .ph-box::before {
+    content: attr(data-label);
+    position: absolute; top: 12px; left: 14px;
+    font-family: var(--font-mono);
+    font-size: 10px; color: var(--text);
+    letter-spacing: 0.14em; text-transform: uppercase;
+    padding: 3px 7px;
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid var(--text);
+    border-radius: 2px;
+  }
+  figure.placeholder .ph-box::after {
+    content: attr(data-hint);
+    position: absolute; bottom: 12px; right: 14px;
+    font-family: var(--font-mono);
+    font-size: 10px; color: var(--text-soft);
+    letter-spacing: 0.08em;
+  }
+  figure.placeholder .ph-desc {
+    position: relative; z-index: 2;
+    padding: 16px 22px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    font-family: var(--font-body);
+    font-size: 13px; color: var(--text-dim);
+    text-align: center; max-width: 78%;
+    line-height: 1.6;
+  }
+  figure.placeholder .ph-desc strong {
+    color: var(--text); font-weight: 500;
+    display: block; margin-bottom: 4px;
+    letter-spacing: 0.06em; font-size: 11px;
+    text-transform: uppercase;
+    font-family: var(--font-mono);
+  }
+  figure.placeholder figcaption {
+    margin-top: 14px;
+    font-size: 14px; color: var(--text-dim);
+    line-height: 1.65;
+  }
+  figure.placeholder figcaption b {
+    color: var(--text); font-weight: 500;
+    font-family: var(--font-mono); font-size: 12px;
+    margin-right: 8px;
+  }
+
+  .fig-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 16px; margin: 36px 0 28px;
+  }
+  .fig-grid figure.placeholder { margin: 0; }
+  @media (max-width: 720px) { .fig-grid { grid-template-columns: 1fr; } }
+
+  /* Real-image figures (same visual language as placeholders) */
+  figure.phase1-fig {
+    margin: 36px 0 28px;
+  }
+  figure.phase1-fig img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    background: var(--bg-elev);
+    transition: border-color .2s ease, transform .25s ease;
+  }
+  figure.phase1-fig img:hover {
+    border-color: var(--text);
+    transform: translateY(-2px);
+  }
+  figure.phase1-fig figcaption {
+    margin-top: 14px;
+    font-size: 14px; color: var(--text-dim);
+    line-height: 1.65;
+  }
+  figure.phase1-fig figcaption b {
+    color: var(--text); font-weight: 500;
+    font-family: var(--font-mono); font-size: 12px;
+    margin-right: 8px;
+  }
+
+  /* Video figures use the same look */
+  figure.video-fig {
+    margin: 36px 0 28px;
+  }
+  figure.video-fig video {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    background: #000;
+    transition: border-color .2s ease;
+  }
+  figure.video-fig video:hover {
+    border-color: var(--text);
+  }
+  figure.video-fig figcaption {
+    margin-top: 14px;
+    font-size: 14px; color: var(--text-dim);
+    line-height: 1.65;
+  }
+  figure.video-fig figcaption b {
+    color: var(--text); font-weight: 500;
+    font-family: var(--font-mono); font-size: 12px;
+    margin-right: 8px;
+  }
+
+  /* Footer */
+  footer.site-footer {
+    margin-top: 40px;
+    padding: 36px 0 28px; text-align: center;
+    font-family: var(--font-mono);
+    font-size: 12px; color: var(--text-soft);
+    letter-spacing: 0.04em;
+  }
+  footer.site-footer .kth {
+    color: var(--text-dim); margin-bottom: 6px;
+    font-family: var(--font-body);
+  }
+  footer.site-footer .year { color: var(--text); }
+
+  /* Credits block (footer-style team info) */
+  section.credits-block {
+    margin-top: 56px;
+  }
+  .source-line {
+    margin-top: 24px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    letter-spacing: 0.04em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .source-line .gh-icon {
+    width: 16px; height: 16px;
+    color: var(--text);
+    flex-shrink: 0;
+  }
+  .source-line .src-label {
+    color: var(--text);
+    margin-right: 4px;
+  }
+  .source-line a {
+    color: var(--accent);
+  }
+
+
+  /* Team grid */
+  .team-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 24px; margin: 36px 0;
+  }
+  .team-card {
+    padding: 22px 22px 20px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+  }
+  .team-card .name {
+    font-family: var(--font-display);
+    font-size: 22px; font-weight: 600;
+    color: var(--text); margin-bottom: 4px;
+  }
+  .team-card .role {
+    font-family: var(--font-mono);
+    font-size: 11px; color: var(--text);
+    letter-spacing: 0.1em; text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .team-card .bio {
+    font-size: 14px; color: var(--text-dim);
+    line-height: 1.75;
+  }
+  @media (max-width: 720px) { .team-grid { grid-template-columns: 1fr; } }
+
+  @media (max-width: 720px) {
+    .shell { padding: 0 22px; }
+    section { padding: 0; }
+    .topbar { padding: 12px 18px; }
+    .topbar-links a[data-hide-sm] { display: none; }
+    .hero { padding: 80px 0 24px; }
+    .hero-sub { font-size: 17px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar" id="topbar">
+  <div class="topbar-title">
+    DH2323
+    <span class="dot"></span>
+    <span class="zh">Unity 光线追踪 · 项目博客</span>
+  </div>
+  <nav class="topbar-links">
+    <a href="#phase-1" data-hide-sm><span class="zh">阶段 1</span></a>
+    <a href="#phase-2" data-hide-sm><span class="zh">阶段 2</span></a>
+    <a href="#phase-3" data-hide-sm><span class="zh">阶段 3</span></a>
+    <a href="#reflections" data-hide-sm><span class="zh">反思</span></a>
+  </nav>
+</header>
+
+<nav class="side-nav" aria-label="章节进度">
+  <a href="#phase-1"><span class="label">阶段 1</span></a>
+  <a href="#phase-2"><span class="label">阶段 2</span></a>
+  <a href="#phase-3"><span class="label">阶段 3</span></a>
+  <a href="#reflections"><span class="label">反思</span></a>
+</nav>
+
+<div class="shell">
+
+<!-- HERO -->
+<section class="hero" id="top">
+  <div class="content">
+    <div class="hero-meta">
+      <span class="badge">DH2323</span>
+      <span class="zh">计算机图形学与交互</span>
+    </div>
+    <h1 class="hero-title">
+      在 Unity 里做一个能<br>
+      实时调焦的<em>光线追踪</em>器。
+    </h1>
+    <p class="hero-sub">
+      从跟着 YouTube 教程学光追，到自己写一个带景深的 CPU 渲染器，
+      最后把它塞进 Unity，做成一个可以实时点哪聚焦哪的小工具。
+      这是我们这学期做的事。
+    </p>
+    <div class="hero-authors">
+      <strong class="zh">王尚文</strong> &amp; <strong class="zh">袁伟程</strong><br>
+      <span class="zh">KTH 皇家理工学院 · DH2323 课程项目 · 2026</span>
+    </div>
+  </div>
+</section>
+
+<!-- PHASE 1 -->
+<section id="phase-1">
+  <div class="content">
+    <h2>阶段 1</h2>
+
+    <p>
+      我们没有从零自己开始写。先去找了
+      <a href="https://github.com/QuantitativeBytes/qbRayTrace" target="_blank" rel="noopener">QuantitativeBytes 的 qbRayTrace 系列</a>:
+      作者把整个开发过程录成了一整套
+      <a href="https://www.youtube.com/@QuantitativeBytes" target="_blank" rel="noopener">YouTube 教程</a>，
+      一节一节往上叠功能，跟着敲就能从空工程一直推到一个能跑的 C++ 光追器。
+      作为"备查参考"的是 <a href="https://github.com/ssloy/tinyraytracer" target="_blank" rel="noopener">tinyraytracer</a>。
+      它把整个东西压在 200 行里，没有抽象层，看不懂某个机制时回去翻它的实现往往最快。
+    </p>
+
+    <figure class="phase1-fig">
+      <img src="assets/phase1-render.jpg" alt="阶段 1 跟着 qbRayTrace 教程实现的早期渲染。四个球、棋盘地面、硬阴影">
+      <figcaption>
+        <b>Fig. 01</b> 阶段 1 跟着教程实现的早期渲染输出。代码改自 <a href="https://github.com/ssloy/tinyraytracer" target="_blank" rel="noopener">tinyraytracer</a>。
+      </figcaption>
+    </figure>
+
+    <p>
+      跑通之后我们开始随便改改，挪球的位置、改光源方向、调折射 IOR。
+      改得多了就直观感觉到这一类教学版的局限：能放的物体只有球；相机是针孔的，没有"光圈"；
+      改完一个数字要重编译再跑一次再开 PPM，调一次参数得等好几秒；渲染单线程，图大一点就要等。
+      这些都成了阶段 2、3 想去解决的问题。
+    </p>
+
+    <h3>光追的基本原理</h3>
+    <p>
+      这里把跟着教程学下来之后，我们对光追原理的理解整理一下。
+      核心思路其实非常简单：屏幕上每一个像素，都对应着真实世界里"从相机出发、穿过这个像素去看"的一条视线。
+      光追做的事就是把这条视线沿着反方向追出去：从相机出发，
+      看它打到场景里的哪个点，再算这个点应该是什么颜色。
+    </p>
+
+    <p>
+      光线本身就是一条参数化的射线，起点 <code>o</code>、方向 <code>d</code>，
+      上面任意一点都可以写成：
+    </p>
+    <div class="eq">
+      <span class="expr">P(t) = o + t · d&nbsp;&nbsp;&nbsp;(t &gt; 0)</span>
+      <span class="num">— 光线方程</span>
+    </div>
+    <p>
+      然后用解析方法求解这条光线和场景里每个物体的交点（教学版里就是球，所以是个二次方程），
+      取最小的正 <code>t</code>，就找到了相机沿这个像素方向"第一个看到"的表面点。
+    </p>
+
+    <h3>递归光线的来由</h3>
+    <p>
+      找到交点之后，下一步是算这个点的颜色。如果是粗糙的漫反射表面，就直接用经典的着色模型
+      （Blinn–Phong 那一套：环境光 + 漫反射 + 高光），同时再额外打一条<em>阴影光线</em>到光源去，
+      看中间有没有被挡住，挡住了就是阴影。
+    </p>
+    <p>
+      但如果命中点是镜面或者玻璃，就得再发一条新光线继续追:
+      镜子按反射定律生成反射光线，玻璃按 Snell 定律算折射光线，
+      然后递归地对那条新光线再做一遍刚才的整个过程（求交、着色、可能再发新光线……），
+      最后把递归回来的颜色叠回当前这个点。这就是 Whitted 在 1980 年提出的那种风格的光追器，
+      也是教学项目里最常实现的版本。整个过程可以非常粗糙地表达成：
+    </p>
+    <div class="eq">
+      <span class="expr">L(命中点) = 直接光照 + k<sub>r</sub> · L(反射光线) + k<sub>t</sub> · L(折射光线)</span>
+      <span class="num">— Whitted 风格递归</span>
+    </div>
+    <p>
+      其中 <code>k<sub>r</sub></code>、<code>k<sub>t</sub></code> 是反射和折射的系数（玻璃材质里通常用 Fresnel 给出）。
+      为了让递归不至于无限下去，给个最大递归深度，比如最多反射 5 次，超过就停下。
+    </p>
+    <p>
+      这就是阶段 1 我们跟着教程实现下来的全部内容。整个过程没有任何"光线之间互相打"的全局光照，
+      间接光、软阴影、焦散这些都不在 Whitted 的范畴里。那要等到 Kajiya 1986 年的渲染方程
+      才把"所有光照都是积分"这件事写清楚，并由蒙特卡洛路径追踪去近似它。
+      但对我们项目来说，Whitted 这一套已经足够了，因为我们想做的是景深，
+      而不是物理上完整的全局光照。下一阶段就要在这个基础上把相机模型从针孔换成薄透镜。
+    </p>
+
+    <div class="callout">
+      <span class="callout-label">阶段 1 · 一点感想</span>
+      <p>
+        最大的收获不是学了某个具体的算法，而是发现自己原本对光追的"理解"是悬空的：
+        渲染方程、Whitted 递归这些课件里看一眼都能点头，但真正跟着教程把代码一行行敲完、再去调，
+        才知道很多细节自己之前是糊弄过去的。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- PHASE 2 -->
+<section id="phase-2">
+  <div class="content">
+    <h2>阶段 2</h2>
+
+    <p>
+      阶段 2 我们脱开教程，<a href="https://github.com/Explorer2025113/CGproject" target="_blank" rel="noopener">自己写了一版 C++ 渲染器</a>。这是项目第一个真正算"我们做的"东西，
+      重点放在两件事上：把相机模型从针孔换成薄透镜（这样才能有景深），
+      以及让"调参 → 看结果"这件事尽可能不卡。
+    </p>
+
+    <figure class="phase1-fig">
+      <img src="assets/phase2-ui.png" alt="阶段 2 Tkinter UI:Camera Mode 三按钮切换、左右分屏 RENDER 和 HEATMAP、底部参数滑块">
+      <figcaption>
+        <b>Fig. 02</b> 阶段 2 的 UI 全貌。顶部是 Camera Mode 的三按钮切换，左右两块大画布同时显示渲染结果和 CoC 热力图，
+        底部是 Aperture radius / Focus distance / Fixed sample count 三个参数滑块，每个滑块都标了它"applies to"哪些模式。
+      </figcaption>
+    </figure>
+
+    <h3>薄透镜相机模型</h3>
+    <p>
+      针孔相机生成的图永远全清晰，因为它根本没有光圈这个概念。
+      薄透镜模型就不一样：每条主光线的起点在一个圆盘上随机采样（这就是"光圈"），方向都指向焦平面上的同一个点。
+      光圈越大，焦平面以外的物体就会被多个不同采样路径打到不同的图像位置，这就是景深模糊。
+    </p>
+
+    <h3>CoC 自适应采样</h3>
+    <p>
+      薄透镜模型的代价是每个像素要发多条光线。但其实图像里大部分像素都不需要：
+      如果一个像素正好落在焦平面上，本来就该清晰，多采样几次也是同一个清晰结果。
+      所以我们做了一件简单但有效的事：用一条主光线先估算一下这个像素应该有多模糊（用弥散圆 CoC 度量），
+      再决定给它几条采样光线：焦平面附近 4 条，过渡区 8 条，深度失焦区 16 条。
+    </p>
+
+    <p>
+      为了让"焦平面附近"这个判断在物体很近的时候也别抖，我们没用教科书里那个常见的距离形式 CoC，
+      而是用了倒深度形式：
+    </p>
+    <div class="eq">
+      <span class="expr">CoC(z) = a · | 1/z − 1/d<sub>f</sub> |</span>
+      <span class="num">— 倒深度形式</span>
+    </div>
+    <p>
+      其中 <code>a</code> 是光圈半径，<code>d<sub>f</sub></code> 是焦距。
+      这个形式对远物体和教材形式一致，但对近物体保持稳定，
+      并且对刚好落在焦平面上的物体精确返回 0，这个细节看着小，但实际效果差挺多。
+    </p>
+
+    <h3>三种相机模式</h3>
+    <p>
+      UI 顶部把 <code>Camera Mode</code> 做成了三个并排的大按钮，对应三种渲染模式。
+      它们对应三个不同的"质量与速度的取舍点"：
+    </p>
+
+    <h4 class="mode">· Pinhole（针孔）</h4>
+    <p>
+      1 spp，没有"光圈"这个概念，所有像素都只发一条光线。整张图永远全清晰，没有景深效果，
+      但速度最快。我们主要在调相机位置、看构图的时候用它做即时预览。
+    </p>
+
+    <h4 class="mode">· Fixed sample（固定采样）</h4>
+    <p>
+      每个像素都用同样多的采样光线（4 / 8 / 16 等可选），bokeh 均匀平滑，
+      适合用来当画面质量的基准看效果"上限"。代价是图像里那些焦平面附近、
+      本来就清晰的像素也在被多次采样，算力被白浪费了。
+    </p>
+
+    <h4 class="mode">· Progressive lens sampling（渐进式 / CoC 自适应）</h4>
+    <p>
+      就是上面讲的 4 / 8 / 16 spp 自动分配的那个方案，是默认工作模式。在大部分场景下能拿到
+      接近 16 spp 固定采样的视觉效果，但总光线数大约只有它的一半。
+    </p>
+
+    <figure class="video-fig">
+      <video src="assets/phase2-modes.mp4" controls preload="metadata" playsinline muted loop></video>
+      <figcaption>
+        <b>Vid. 1</b> 阶段 2 演示:在 UI 上切换 Progressive / Fixed / Pinhole 三种模式，
+        左侧 RENDER 是当前模式的渲染结果，右侧 HEATMAP 同步显示 CoC 分级热力图（绿/黄/红 = 4/8/16 spp）。
+      </figcaption>
+    </figure>
+
+    <h3>调参用的小 UI</h3>
+    <p>
+      C++ 渲染器本身只能在命令行跑。为了能边调边看，我们用 Python 写了个 Tkinter 小窗口:
+      顶部是 Camera Mode 三按钮、左右两块画布同时显示渲染结果和 CoC 热力图、底部是参数滑块，
+      左下角还做了 Full Quality / Re-render / Start Record / Export MP4 几个工具按钮。
+      用户改动滑块或按钮时，后台 Python 线程就调一次 C++ 程序、把渲染结果回写成图像并刷到画布上。
+      渲染本身在 C++ 里用 OpenMP 并行起来，跑得不慢。
+      但每次滑动都启动一个新进程的代价是固定的，几十毫秒花在子进程启动和文件 I/O 上，渲染还没开始就已经掉帧了。
+    </p>
+  </div>
+</section>
+
+<!-- PHASE 3 -->
+<section id="phase-3">
+  <div class="content">
+    <h2>阶段 3</h2>
+
+    <p>
+      阶段 3 同时要做两件事：让渲染器支持任意三角网格（不能只能放球了），
+      并彻底消掉阶段 2 那个"每帧启动一个新进程"的开销，让它<a href="https://github.com/Explorer2025113/CG-Project" target="_blank" rel="noopener">直接在 Unity 里跑</a>。
+    </p>
+
+    <h3>三角网格与 BVH</h3>
+    <p>
+      只支持球的渲染器没法用真实场景做演示。所以我们加了两样东西：
+      光线-三角形相交算法（用了经典的 Möller–Trumbore），以及一棵 BVH 加速结构来避免对每个三角形挨个测试。
+      BVH 用 SAH 启发式按表面积代价做切分，配合 slab 法做包围盒求交，
+      让一个有上万三角形的场景也能跑出可交互的帧率。
+    </p>
+
+    <h3>C++ 接入 Unity</h3>
+    <p>
+      阶段 2 那种"启动子进程渲染再读 PPM"的模式被整个砍掉。我们把 C++ 核心编成 DLL，
+      在 Unity 的 C# 脚本里用 P/Invoke 直接调用它的渲染函数。
+      关键技巧是把像素 buffer 在 C# 端"钉住"（pin 起来不让 GC 搬动），
+      把指针交给 C++，让它直接把 RGBA 写进这块内存，
+      托管和非托管之间没有发生拷贝，整套流程零开销。
+      然后 Unity 再把这块字节数组上传成 GPU 纹理显示出来。
+    </p>
+
+    <h3>自适应视口降质</h3>
+    <p>
+      就算上了零拷贝，CPU 渲染一帧 512×384 的薄透镜景深图还是要花一些时间，鼠标拖动相机的时候肯定撑不住。
+      办法很朴素：检测到用户在动（鼠标拖、键盘按、点击），
+      就临时降到 320×180、关掉景深、切回针孔相机；用户一停手 0.2 秒后，再恢复全质量。
+      用户感受不到画质切换，因为他动的时候本来就在看大致构图，停下来才会去仔细看景深细节。
+    </p>
+
+    <h3>点击对焦交互</h3>
+    <p>
+      最后加了一个我们自己用得最爽的功能：仿单反相机的"点击对焦"。
+      用 Unity 自带的 <code>Physics.Raycast</code> 测一下鼠标指向的物体距离，
+      点一下就把这个距离同步到光追器的对焦距离参数。
+      指针移动时还有一个低频"探测光线"在背后跑，鼠标停在哪个物体上，
+      画面中央的小准星就会变绿告诉你"这里能聚上"。
+    </p>
+
+    <h3>最终演示效果</h3>
+    <p>
+      演示场景使用的是 demo04 的场景和素材。
+    </p>
+
+    <figure class="phase1-fig">
+      <img src="assets/phase3-demo-poster.jpg" alt="阶段 3 主图:左右分屏对比，左侧 Unity URP 光栅化，右侧我们的光线追踪器带景深">
+      <figcaption><b>Fig. 04</b> 左右分屏：Unity URP（左）vs 我们的光线追踪器（右）。光圈、对焦距离都可以实时调；右侧的景深效果是物理意义上的，光栅化视图本身不会有这种效果。</figcaption>
+    </figure>
+
+    <p>
+      下面这段视频在 samplesence 场景里把三种相机模式各走了一遍。
+      所有模式都共用同一套交互:用鼠标在画面里点一下就当作"按快门"测距，UI 上可以实时调整光圈半径和对焦距离。
+      三个模式之间的差别在于这些参数对画面究竟起什么作用:
+    </p>
+    <ul class="spec">
+      <li>Progressive:CoC 自适应分配 4/8/16 spp，可以打开 heatmap 直接看到每个像素被分到哪一档，调阈值就能看到分布跟着变。</li>
+      <li>Fixed:每个像素的采样数都是固定的，调 CoC 阈值不起作用，bokeh 平滑稳定，作为效果上限的参照。</li>
+      <li>Pinhole:全焦无景深，画面永远清晰、速度最快；这个模式下调光圈和焦距都没有可见效果。</li>
+    </ul>
+
+    <figure class="video-fig">
+      <video src="assets/phase3-demo.mp4" poster="assets/phase3-demo-poster.jpg" controls preload="metadata" playsinline muted loop></video>
+      <figcaption><b>Vid. 2</b> 阶段 3 实时演示。</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- REFLECTIONS -->
+<section id="reflections">
+  <div class="content">
+    <h2>反思</h2>
+
+    <p>
+      最难的那一跳并不是我们以为的那一跳。阶段 1 → 阶段 2 看起来吓人：我们要换相机模型！
+      但那其实是一下午的活。真正难的是阶段 2 → 阶段 3：几何上要支持任意网格、架构上要消掉进程边界，
+      两个独立的大改动撞到一起，所以阶段 3 的开头一段时间是项目最容易崩盘的时刻。
+    </p>
+
+    <p>
+      过程中也踩了一些挺可笑的坑。最尴尬的一次是 Unity 编辑器抓着我们更新过的 C++ DLL 旧版本不放，
+      代码改了、行为还是老的，渲染结果悄无声息地是错的。我们一整下午都在确信"BVH 遍历有 bug"，
+      最后才发现执行的是三个版本之前的 BVH。从那以后每个版本的 DLL 都带一个版本号字段，
+      Unity 启动时不对就报错。还有一次是早期景深里有微弱的"鬼影"，
+      原因是我们把光线偏置沿着相机前向做的，而不是沿着光线本身，一行代码的事，但找了大半天。
+    </p>
+
+    <p>
+      最让我们自己意外的是，那些原本只是为了调试而写的工具，
+      包括把每个像素染成绿/黄/红显示采样档位的诊断模式、Unity 光栅化和我们的光追器并排显示的分屏对比、
+      探针延迟的实时读数，最后全都成了真正能拿出来给人看的功能。
+      下次再做这种项目，我们会从第一天就开始建诊断层。
+    </p>
+  </div>
+</section>
+
+<!-- TEAM / CREDITS as footer info -->
+<section id="team" class="credits-block">
+  <div class="content">
+    <div class="team-grid">
+      <div class="team-card">
+        <div class="name">王尚文 / Shangwen Wang</div>
+        <div class="role">C++ 核心 · 渲染算法</div>
+        <div class="bio">
+          负责整个 C++ 光追后端：阶段 1 跟着 qbRayTrace 教程实现并参照 tinyraytracer；
+          阶段 2 自己写的薄透镜、CoC 自适应采样、OpenMP 并行；
+          阶段 3 的 BVH、Möller–Trumbore、Vogel 圆盘采样、玻璃材质、热力图诊断模式，
+          以及 DLL 的 ABI 设计与版本校验。
+        </div>
+      </div>
+      <div class="team-card">
+        <div class="name">袁伟程 / Weicheng Yuan</div>
+        <div class="role">前端 · 交互架构</div>
+        <div class="bio">
+          负责所有交互层：阶段 2 的 Python/Tkinter UI 与子进程调度；
+          阶段 3 的 Unity / C# 前端:P/Invoke 桥、固定内存管理、自由相机控制器、
+          自适应视口、点击对焦、分屏对比，以及 samplesence 场景集成。
+        </div>
+      </div>
+    </div>
+
+    <p class="source-line">
+      <svg class="gh-icon" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+        <path d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.39v-1.36c-2.22.48-2.69-1.07-2.69-1.07-.36-.93-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.22.83 1.22.83.72 1.23 1.88.88 2.34.67.07-.52.28-.88.51-1.08-1.77-.2-3.64-.88-3.64-3.95 0-.87.31-1.58.82-2.14-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.03 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.14 0 3.08-1.87 3.75-3.65 3.95.29.25.55.73.55 1.48v2.2c0 .22.15.47.55.39A8 8 0 0 0 8 0z"/>
+      </svg>
+      <span class="src-label">GitHub 源码</span>
+      <a href="https://github.com/Explorer2025113/CGproject" target="_blank" rel="noopener">C++ 渲染器</a>
+       · 
+      <a href="https://github.com/Explorer2025113/CG-Project" target="_blank" rel="noopener">Unity 工程</a>
+    </p>
+  </div>
+</section>
+
+</div>
+
+<footer class="site-footer">
+  <div class="kth">KTH 皇家理工学院 · DH2323 计算机图形学与交互</div>
+  <div><span class="year">2026</span> · 王尚文 · 袁伟程</div>
+</footer>
+
+<script>
+  const topbar = document.getElementById('topbar');
+  window.addEventListener('scroll', () => {
+    topbar.classList.toggle('scrolled', window.scrollY > 20);
+  }, { passive: true });
+
+  const sections = document.querySelectorAll('section[id]');
+  const sideLinks = document.querySelectorAll('.side-nav a');
+  const sideMap = new Map();
+  sideLinks.forEach(a => sideMap.set(a.getAttribute('href').slice(1), a));
+
+  const activeIo = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        sideLinks.forEach(a => a.classList.remove('active'));
+        const link = sideMap.get(e.target.id);
+        if (link) link.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-40% 0px -50% 0px', threshold: 0 });
+  sections.forEach(s => activeIo.observe(s));
+</script>
+
+</body>
+</html>
